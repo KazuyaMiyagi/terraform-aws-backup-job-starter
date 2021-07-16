@@ -1,0 +1,30 @@
+version: 0.2
+
+##
+# These environment variables are injected from codebuild or codepipeline settings.
+# - BACKUP_VAULT_NAME
+# - RESOURCE_ARN
+# - IAM_ROLE_ARN
+phases:
+  pre_build:
+    commands:
+      - aws --version
+      - jq --version
+      - echo "BACKUP_VAULT_NAME='${BACKUP_VAULT_NAME}'"
+      - echo "RESOURCE_ARN='${RESOURCE_ARN}'"
+      - echo "IAM_ROLE_ARN='${IAM_ROLE_ARN}'"
+
+  build:
+    commands:
+      - aws backup start-backup-job --backup-vault-name "${BACKUP_VAULT_NAME}" --resource-arn "${RESOURCE_ARN}" --iam-role-arn "${IAM_ROLE_ARN}" | tee response
+
+      - BACKUP_JOB_ID=$(jq -r ".BackupJobId" < response)
+      - |
+        until [ "${STATE:=RUNNING"}" = "COMPLETED" ]
+        do
+          echo "Current status: '${STATE}' wait 10 seconds."
+          sleep 10
+          aws backup describe-backup-job --backup-job-id "${BACKUP_JOB_ID}" | tee response
+          STATE=$(jq -r ".State" < response)
+        done
+        echo "Current status: '${STATE}'"
